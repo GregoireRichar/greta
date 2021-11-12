@@ -36,6 +36,8 @@
         <ant target="${action}" useNativeBasedir="true" dir="auxiliary/AnimationDynamics"/>
         <ant target="${action}" useNativeBasedir="true" dir="auxiliary/BVHMocap"/>
         <ant target="${action}" useNativeBasedir="true" dir="auxiliary/ConversationalGaze"/>
+        <ant target="${action}" useNativeBasedir="true" dir="auxiliary/DialogueManager/FlipperDemoExample"/>
+        <ant target="${action}" useNativeBasedir="true" dir="auxiliary/DialogueManager/FlipperLib"/>
         <ant target="${action}" useNativeBasedir="true" dir="auxiliary/EmotionML"/>
         <ant target="${action}" useNativeBasedir="true" dir="auxiliary/EnvironmentManager"/>
         <ant target="${action}" useNativeBasedir="true" dir="auxiliary/FMLAnnotator"/>
@@ -67,6 +69,7 @@
         <ant target="${action}" useNativeBasedir="true" dir="core/SubjectPlanner"/>
         <ant target="${action}" useNativeBasedir="true" dir="core/Util"/>
         <ant target="${action}" useNativeBasedir="true" dir="core/Utilx"/>
+        <ant target="${action}" useNativeBasedir="true" dir="tools/CorrectionMesh"/>
         <ant target="${action}" useNativeBasedir="true" dir="tools/Editors"/>
         <ant target="${action}" useNativeBasedir="true" dir="tools/GestureAnimationEditor"/>
         <ant target="${action}" useNativeBasedir="true" dir="tools/VideoCapture"/>
