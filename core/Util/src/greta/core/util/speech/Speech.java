@@ -64,6 +64,7 @@ public class Speech implements Temporizable{
     private List<TimeMarker> markers;
     private List<Boundary> boundaries;
     private List<PitchAccent> pitchaccents;
+    private List<SpecialPitchAccent> specialpitchaccents;
     private String id;
     private List<Phoneme> phonems;
     private Audio audio;
@@ -87,6 +88,7 @@ public class Speech implements Temporizable{
         speechElements = new ArrayList<Object>();
         boundaries = new ArrayList<Boundary>();
         pitchaccents = new ArrayList<PitchAccent>();
+        specialpitchaccents = new ArrayList<SpecialPitchAccent>();
         phonems = new ArrayList<Phoneme>();
         start = new TimeMarker("start");//must always be the first element
         end = new TimeMarker("end");//must always be the last element
@@ -107,6 +109,7 @@ public class Speech implements Temporizable{
         end = s.end;
         boundaries = new ArrayList<Boundary>(s.boundaries);
         pitchaccents = new ArrayList<PitchAccent>(s.pitchaccents);
+        specialpitchaccents = new ArrayList<SpecialPitchAccent>(s.specialpitchaccents);
         id = s.id;
         if(s.phonems != null) {
             phonems = new ArrayList<Phoneme>(s.phonems);
@@ -302,6 +305,14 @@ public class Speech implements Temporizable{
     public List<PitchAccent> getPitchAccent(){
         return pitchaccents;
     }
+    
+    /**
+     * Returns the list of {@code SpecialPitchAccents}.
+     * @return the list of {@code SpecialPitchAccents}
+     */
+    public List<SpecialPitchAccent> getSpecialPitchAccent() {
+        return specialpitchaccents;
+    }
 
     /**
      * Returns the language of this {@code Speech}.
@@ -443,6 +454,28 @@ public class Speech implements Temporizable{
                                 }
                             }
                             tmpEndPitchAccentXMLNode = p_node;
+                        } else if (o instanceof SpecialPitchAccent) {
+                            SpecialPitchAccent specialPitchAccent = (SpecialPitchAccent)o;
+                            XMLTree p_node = toReturn.createChild("prosody");
+                            
+                            //hardcoded configurations, maybe let the user configure this from the FML/BML?
+                            p_node.setAttribute("volume", "+8.0dB");
+                            p_node.setAttribute("pitch", "+15%");
+                            
+                            XMLTree emphasisNode = p_node.createChild("emphasis");
+                            
+                            //another hardcoded configuration
+                            emphasisNode.setAttribute("level", "strong");
+                            
+                            tmpEndPitchAccent = "end";
+                            TimeMarker specialPitchAccentEnd  = specialPitchAccent.getEnd();
+                            if(!specialPitchAccentEnd.getReferences().isEmpty()){
+                                String targetName = specialPitchAccentEnd.getReferences().get(0).getTargetName();
+                                if(targetName.startsWith(getId()+":")){
+                                    tmpEndPitchAccent = targetName.substring(getId().length()+1);
+                                }
+                            }
+                            tmpEndPitchAccentXMLNode = emphasisNode;
                         }
                     }
                 }
@@ -545,6 +578,7 @@ public class Speech implements Temporizable{
 
         ArrayList<Boundary> tempBoundaries = new ArrayList<Boundary>();
         ArrayList<PitchAccent> tempPitchAccents = new ArrayList<PitchAccent>();
+        ArrayList<SpecialPitchAccent> tempSpecialPitchAccents = new ArrayList<SpecialPitchAccent>();
 
         //we only insert text and time marker. pitch accents and boundaries are inserted after
         for(XMLTree child : tree.getChildren()){
@@ -627,6 +661,25 @@ public class Speech implements Temporizable{
                             //end backward compatibility
 
                             tempPitchAccents.add(new PitchAccent(p_id,p_type,p_level,p_importance,p_start,p_end));
+                        }
+                    }
+                    else if (child.getName().equalsIgnoreCase("specialpitchaccent")) {
+                        String p_id = child.getAttribute("id");
+                        if(p_id.isEmpty()){
+                            Logs.error(this.getClass().getName()+" : invalid special pitch accent identifier.");
+                            continue;
+                        }
+                        String p_start = child.getAttribute("start");
+                        if(p_start.isEmpty()){
+                            Logs.error(this.getClass().getName()+" : no start found for boundary : "+p_id+".");
+                            continue;
+                        }
+                        String p_end = child.getAttribute("end");
+                        if(p_end.isEmpty()){
+                            tempSpecialPitchAccents.add(new SpecialPitchAccent(p_id, p_start));
+                        }
+                        else{
+                            tempSpecialPitchAccents.add(new SpecialPitchAccent(p_id, p_start,p_end));
                         }
                     }
                     else{
@@ -720,6 +773,10 @@ public class Speech implements Temporizable{
         //we suppose that boundaries and pitch accents may not be in the right order
         //so we add them at this end (addSpeechElement put them after corresponding start time marker)
         for(PitchAccent p : tempPitchAccents) {
+            addSpeechElement(p);
+        }
+        //I am not sure if this is the correct way of adding the special pitch accent
+        for(SpecialPitchAccent p : tempSpecialPitchAccents) {
             addSpeechElement(p);
         }
         for(Boundary b : tempBoundaries) {
@@ -862,6 +919,32 @@ public class Speech implements Temporizable{
                                 p_node.setAttribute("level",PitchAccent.stringOfLevel(pitchAccent.getLevel()));
                                 p_node.setAttribute("importance",""+pitchAccent.getImportance());
                             }
+                            else if (o instanceof SpecialPitchAccent) {
+                                SpecialPitchAccent specialPitchAccent = (SpecialPitchAccent)o;
+                                XMLTree p_node = toReturn.createChild("specialpitchaccent");
+                                String p_id = specialPitchAccent.getId();
+                                p_node.setAttribute("id", p_id);
+                                TimeMarker p_start = specialPitchAccent.getStart();
+                                SynchPoint p_refstart = p_start.getFirstSynchPointWithTarget();
+                                if(p_refstart != null) {
+                                    p_node.setAttribute("start", p_refstart.toString());
+                                }
+                                else{
+                                    if(p_start.concretizeByReferences()) {
+                                        p_node.setAttribute("start", ""+p_start.getValue());
+                                    }
+                                }
+                                TimeMarker p_end = specialPitchAccent.getEnd();
+                                SynchPoint p_refend = p_end.getFirstSynchPointWithTarget();
+                                if(p_refend != null) {
+                                    p_node.setAttribute("end", p_refend.toString());
+                                }
+                                else{
+                                    if(p_end.concretizeByReferences()){
+                                        p_node.setAttribute("end", ""+p_end.getValue());
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -893,6 +976,11 @@ public class Speech implements Temporizable{
         if(o instanceof PitchAccent){
             pitchaccents.add((PitchAccent)o);
             int temp_index = indexOfTimeMarkerCorrespondingToStartOf((PitchAccent)o);
+            indexToAdd = temp_index == -1 ? indexToAdd : temp_index+1;
+        }
+        if(o instanceof SpecialPitchAccent){
+            specialpitchaccents.add((SpecialPitchAccent)o);
+            int temp_index = indexOfTimeMarkerCorrespondingToStartOf((SpecialPitchAccent)o);
             indexToAdd = temp_index == -1 ? indexToAdd : temp_index+1;
         }
         if(o instanceof TimeMarker) {
