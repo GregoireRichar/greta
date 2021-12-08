@@ -41,8 +41,8 @@ public class OpenFaceOutputStreamCSVReader extends OpenFaceOutputStreamAbstractR
 
     /* ---------------------------------------------------------------------- */
 
-    public OpenFaceOutputStreamCSVReader(OpenFaceOutputStreamReader loader) {
-        super(loader);
+    public OpenFaceOutputStreamCSVReader() {
+        super();
     }
 
     /* ---------------------------------------------------------------------- */
@@ -134,7 +134,9 @@ public class OpenFaceOutputStreamCSVReader extends OpenFaceOutputStreamAbstractR
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.split(OpenFaceFrame.separator).length == 714) {
-                    processFrame(line);
+                    preProcessFrame();
+                    curFrame.readDataLine(line);
+                    postProcessFrame();
                 }
             }
         } catch (IOException ex) {

@@ -17,7 +17,6 @@
  */
 package greta.auxiliary.openface2;
 
-import greta.auxiliary.openface2.gui.OpenFaceOutputStreamReader;
 import greta.auxiliary.openface2.util.OpenFaceFrame;
 import greta.core.util.time.Timer;
 import java.util.logging.Logger;
@@ -54,8 +53,8 @@ public class OpenFaceOutputStreamZeroMQReader extends OpenFaceOutputStreamAbstra
 
     /* ---------------------------------------------------------------------- */
 
-    public OpenFaceOutputStreamZeroMQReader(OpenFaceOutputStreamReader loader) {
-        super(loader);
+    public OpenFaceOutputStreamZeroMQReader() {
+        super();
     }
 
     /* ---------------------------------------------------------------------- */
@@ -167,20 +166,18 @@ public class OpenFaceOutputStreamZeroMQReader extends OpenFaceOutputStreamAbstra
         if (line != null) {
             if (line.startsWith("DATA:")) {                
                 lineNullCount = 0;
-                processData(line);
+                processFrame(line);
             } else if (line.startsWith("HEADER:")) {
                 processHeader(line);
             } else {
                 LOGGER.warning(String.format("Line not recognized: %s", line));
-            }
-				
-														  
+            }											  
         }
         else
             lineNullCount++;
         // Send null data when missing too many frames
         if(lineNullCount > MAX_LINENULLCOUNT)
-            processNullData();
+            processFrame();
     }
 
     private void processHeader(String line) {
@@ -190,14 +187,23 @@ public class OpenFaceOutputStreamZeroMQReader extends OpenFaceOutputStreamAbstra
             headerChanged(OpenFaceFrame.availableFeatures);
         }
     }
-
-    private void processData(String line) {
-        processFrame(line.substring(5));
-    }
     
-    private void processNullData(){
-        processFrame(null);
+    protected void processFrame(String line) {
+        if (isPerforming() ) {
+            preProcessFrame();            
+            curFrame.readDataLine(line);
+            postProcessFrame();
+        }
     }
+
+    private void processFrame() {
+        if (isPerforming() ) {
+            preProcessFrame();
+            curFrame = new OpenFaceFrame();
+            curFrame.timestamp = Timer.getTime();
+            postProcessFrame();
+        }
+    }    
 
     /* ---------------------------------------------------------------------- */
 

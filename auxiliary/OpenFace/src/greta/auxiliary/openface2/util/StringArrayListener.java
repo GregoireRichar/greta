@@ -17,10 +17,12 @@
  */
 package greta.auxiliary.openface2.util;
 
+import java.util.List;
+
 /**
  *
  * @author Philippe Gauthier <philippe.gauthier@sorbonne-universite.fr>
  */
 public interface StringArrayListener {
-    void stringArrayChanged(String[] stringArray);
+    void stringArrayChanged(List<String> stringArray);
 }

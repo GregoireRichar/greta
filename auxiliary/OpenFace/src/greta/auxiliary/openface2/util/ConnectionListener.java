@@ -15,7 +15,7 @@
  * along with Greta.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
-package greta.auxiliary.zeromq;
+package greta.auxiliary.openface2.util;
 
 /**
  *

@@ -166,7 +166,7 @@ public class CommandReceiver extends Receiver implements IntentionEmitter, Signa
      */
     private void handleAnimIdMessage (Message message) {
         sendDominanceLikingFromMessage(message);
-        Logs.debug("animation to play received: " + message.getString_content());
+        Logs.info("animation to play received: " + message.getString_content());
 
         XMLTree xml;
         try {

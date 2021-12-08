@@ -28,6 +28,7 @@
                 <menu name="OpenFace">
                     <item module="OpenFace1 AU Parser Files Reader" name="(OpenFace v1) AU Parser Files Reader"/>
                     <item module="OpenFace2 Output Stream Reader" name="(OpenFace v2) Output Stream Reader"/>
+					<item module="OpenFace2 Output Stream Reader OSC" name="(OpenFace v2) Output Stream Reader OSC"/>
                 </menu>
             </menu>
             <menu name="Interruptions">
@@ -980,6 +981,11 @@
             <parameter default="" get_method="getCSVFileName" get_on="object" name="csvFileName" set_method="setCSVFileName" set_on="object" type="string"/>
             <parameter default="" get_method="getZeroMQHost" get_on="object" name="zeroMQHost" set_method="setZeroMQHost" set_on="object" type="string"/>
             <parameter default="" get_method="getZeroMQPort" get_on="object" name="zeroMQPort" set_method="setZeroMQPort" set_on="object" type="string"/>
+        </module>
+		<module name="OpenFace2 Output Stream Reader OSC" style="Signals">
+            <object class="greta.auxiliary.openface2.gui.OpenFaceOutputStreamReaderOSC" lib_id="greta_openface"/>
+            <frame type="object"/>
+            <parameter default="" get_method="getOscInPort" get_on="object" name="oscInPort" set_method="setOscInPort" set_on="object" type="integer"/>
         </module>
         <module name="Group Behavior" style="DEFAULT">
             <object class="greta.auxiliary.groupbehavior.GroupBehaviorMain" lib_id="greta_group_behavior"/>

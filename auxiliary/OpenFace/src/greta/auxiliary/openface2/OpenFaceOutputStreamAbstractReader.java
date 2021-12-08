@@ -17,11 +17,9 @@
  */
 package greta.auxiliary.openface2;
 
-import greta.auxiliary.openface2.gui.OpenFaceOutputStreamReader;
 import greta.auxiliary.openface2.util.OpenFaceFrame;
-import greta.auxiliary.openface2.util.ArrayOfDoubleFilter;
 import greta.auxiliary.openface2.util.StringArrayListener;
-import greta.auxiliary.zeromq.ConnectionListener;
+import greta.auxiliary.openface2.util.ConnectionListener;
 import greta.core.animation.mpeg4.bap.BAPFrame;
 import greta.core.animation.mpeg4.bap.BAPType;
 import greta.core.repositories.AUAPFrame;
@@ -36,6 +34,12 @@ import java.util.logging.Logger;
 import com.illposed.osc.*;
 import com.illposed.osc.transport.udp.OSCPortOut;
 import greta.auxiliary.openface2.util.ArrayOfDoubleFilterPow;
+import greta.core.animation.mpeg4.bap.BAPFrameEmitter;
+import greta.core.animation.mpeg4.bap.BAPFrameEmitterImpl;
+import greta.core.animation.mpeg4.bap.BAPFramePerformer;
+import greta.core.keyframes.face.AUEmitter;
+import greta.core.keyframes.face.AUEmitterImpl;
+import greta.core.keyframes.face.AUPerformer;
 import java.io.IOException;
 import java.util.Map;
 import java.util.TreeMap;
@@ -44,10 +48,11 @@ import java.util.TreeMap;
  *
  * @author Brice Donval
  */
-public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
+public abstract class OpenFaceOutputStreamAbstractReader implements Runnable, AUEmitter, BAPFrameEmitter {
     protected static final Logger LOGGER = Logger.getLogger(OpenFaceOutputStreamAbstractReader.class.getName());
 
-    protected final OpenFaceOutputStreamReader loader;
+    protected AUEmitterImpl auEmitter = new AUEmitterImpl();
+    protected BAPFrameEmitterImpl bapFrameEmitter = new BAPFrameEmitterImpl();
 
     /* ---------------------------------------------------------------------- */
 
@@ -63,6 +68,7 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
 
     private int startInputFrame = 0;
     private final int offsetFrame = 0;
+    protected int curGretaFrame;
 
     protected double fps = 0.0;
     protected double frameDuration = 0.0;
@@ -73,6 +79,7 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
     protected boolean useFilter = true;
     protected OSCPortOut oscOut = null;
 
+    protected boolean isPerforming = false;
     // loop variables
     protected double prev_rot_X = 0.0;
     protected double prev_rot_Y = 0.0;
@@ -84,11 +91,8 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
     protected double alpha = 0.75; //1.0;
     
     
-    protected OpenFaceOutputStreamAbstractReader(OpenFaceOutputStreamReader loader) {
-        this.loader = loader;
+    protected OpenFaceOutputStreamAbstractReader() {
         
-        addConnectionListener(loader);
-        addHeaderListener(loader);
     }
     
     public void setOSCout(OSCPortOut oscPort){
@@ -115,8 +119,12 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
         filterBAP.setPow(d);
     }
 
-    protected boolean loaderIsPerforming() {
-        return loader.isPerforming();
+    public boolean isPerforming() {
+        return isPerforming;
+    }
+    
+    public void setPerforming(boolean on) {
+        isPerforming = on;
     }
 
     /* ---------------------------------------------------------------------- */
@@ -147,34 +155,35 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
     }
 
     /* ---------------------------------------------------------------------- */
-    protected void processFrame(String line) {
-        if (loaderIsPerforming() ) {
-            int curGretaFrame = (int) (Timer.getTime() * Constants.FRAME_PER_SECOND);
-            prevFrame.copy(curFrame);
+    protected void preProcessFrame() {
+        if (isPerforming() ) {
+            curGretaFrame = (int) (Timer.getTime() * Constants.FRAME_PER_SECOND);
+            curFrame.frameNumber = curGretaFrame;
+            //prevFrame.copy(curFrame);
 
             if (startInputFrame == 0) {
                 startInputFrame = curFrame.frameNumber;
             }
-            
-            if( line != null)
-                curFrame.readDataLine(line);
-            else{
-                curFrame = new OpenFaceFrame();
-                curFrame.timestamp = Timer.getTime();
-            }
+        }
+    }
+    
+    protected void postProcessFrame(){
+        if (isPerforming() ) {
             //curFrame.frameNumber += offsetFrame-startInputFrame + curGretaFrame;
-            curFrame.frameNumber = offsetFrame + curGretaFrame;
+            //curFrame.frameNumber = offsetFrame + curGretaFrame;
             int frameDiff = curFrame.frameNumber - prevFrame.frameNumber;
-            if (frameDiff < 10 && frameDiff > 0) { // If less than 10 frame delay
+            if (0 <=frameDiff && frameDiff < 10) { // If less than 10 frame delay
                 frameDuration = curFrame.timestamp - prevFrame.timestamp;
                 fps = 1.0 / frameDuration;
                 //LOGGER.fine(String.format("frameNumber: %d, fps:%f, f dur:%f",curFrame.frameNumber, fps, frameDuration));
-                processOpenFace();
+                sendFAB_BAP();
             }
+            //else LOGGER.info(String.format("Skipping sendFAB_BAP, framediff: %d",frameDiff));
+            prevFrame.copy(curFrame);
         }
-    }    
+    }
 
-    private void processOpenFace() {
+    protected void sendFAB_BAP() {
         // Format based on <https://github.com/TadasBaltrusaitis/OpenFace>:
         // frame,           face_id,        timestamp,      confidence,     success,
         // gaze_0_x,        gaze_0_y,       gaze_0_z,
@@ -184,7 +193,7 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
         // pose_Rx,         pose_Ry,        pose_Rz
         // AUs_r,           AUs_c
 
-        if (loaderIsPerforming()) {
+        if (isPerforming()) {
             if (frameDuration != 0) {
                 if (frameDuration > max_time) {
                     max_time = frameDuration;
@@ -311,13 +320,13 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
 
     /* ---------------------------------------------------------------------- */
 
-    private void addConnectionListener(ConnectionListener connectionListener) {
+    public void addConnectionListener(ConnectionListener connectionListener) {
         if (connectionListener != null && !connectionListeners.contains(connectionListener)) {
             connectionListeners.add(connectionListener);
         }
     }
 
-    private void removeConnectionListener(ConnectionListener connectionListener) {
+    public void removeConnectionListener(ConnectionListener connectionListener) {
         if (connectionListener != null && connectionListeners.contains(connectionListener)) {
             connectionListeners.remove(connectionListener);
         }
@@ -337,19 +346,19 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
 
     /* ---------------------------------------------------------------------- */
 
-    private void addHeaderListener(StringArrayListener headerListener) {
+    public void addHeaderListener(StringArrayListener headerListener) {
         if (headerListener != null && !headerListeners.contains(headerListener)) {
             headerListeners.add(headerListener);
         }
     }
 
-    private void removeHeaderListener(StringArrayListener headerListener) {
+    public void removeHeaderListener(StringArrayListener headerListener) {
         if (headerListener != null && headerListeners.contains(headerListener)) {
             headerListeners.remove(headerListener);
         }
     }
 
-    protected void headerChanged(String[] newFeatures) {
+    protected void headerChanged(List<String> newFeatures) {
         headerListeners.forEach((headerListener) -> {
             headerListener.stringArrayChanged(newFeatures);
         });
@@ -378,21 +387,20 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
 
     protected void sendAUFrame(AUAPFrame auFrame) {
         ID id = IDProvider.createID(threadName + "_sendAUFrame");
-        loader.sendAUFrame(auFrame, id);
+        auEmitter.performAUAPFrame(auFrame, id);
     }
+    
 
     protected void sendBAPFrame(BAPFrame bapFrame) {
         ID id = IDProvider.createID(threadName + "_sendBAPFrame");
-        loader.sendBAPFrame(bapFrame, id);
+        bapFrameEmitter.sendBAPFrame(id, bapFrame);
     }
 
     /* ---------------------------------------------------------------------- */
 
     @Override
     public void finalize() throws Throwable {
-        stopThread();
-        removeConnectionListener(loader);
-        removeHeaderListener(loader);
+        stopThread();;
         super.finalize();
     }
 
@@ -413,5 +421,55 @@ public abstract class OpenFaceOutputStreamAbstractReader implements Runnable {
             filterAUs.clear();
             filterBAP.clear();
         }
+    }
+    
+    /* ---------------------------------------------------------------------- *
+     *                               AUEmitter                                *
+     * ---------------------------------------------------------------------- */
+
+    @Override
+    public void addAUPerformer(AUPerformer auPerformer) {
+        if (auPerformer != null) {
+            LOGGER.fine("addAUPerformer");
+            auEmitter.addAUPerformer(auPerformer);
+        }
+    }
+
+    @Override
+    public void removeAUPerformer(AUPerformer auPerformer) {
+        if (auPerformer != null) {
+            LOGGER.fine("removeAUPerformer");
+            auEmitter.removeAUPerformer(auPerformer);
+        }
+    }
+
+    public void sendAUFrame(AUAPFrame auFrame, ID id) {
+        //LOGGER.info("sendAUFrame");
+        auEmitter.performAUAPFrame(auFrame, id);
+    }
+
+    /* ---------------------------------------------------------------------- *
+     *                            BAPFrameEmitter                             *
+     * ---------------------------------------------------------------------- */
+
+    @Override
+    public void addBAPFramePerformer(BAPFramePerformer bapFramePerformer) {
+        if (bapFramePerformer != null) {
+            LOGGER.fine("addBAPFramePerformer");
+            bapFrameEmitter.addBAPFramePerformer(bapFramePerformer);
+        }
+    }
+
+    @Override
+    public void removeBAPFramePerformer(BAPFramePerformer bapFramePerformer) {
+        if (bapFramePerformer != null) {
+            LOGGER.fine("removeBAPFramePerformer");
+            bapFrameEmitter.removeBAPFramePerformer(bapFramePerformer);
+        }
+    }
+
+    public void sendBAPFrame(BAPFrame bapFrame, ID id) {
+        //LOGGER.info("sendBAPFrame");
+        bapFrameEmitter.sendBAPFrame(id, bapFrame);
     }
 }

@@ -17,22 +17,17 @@
  */
 package greta.auxiliary.openface2.gui;
 
-import greta.auxiliary.openface2.OpenFaceOutputStreamCSVReader;
-import greta.auxiliary.openface2.OpenFaceOutputStreamZeroMQReader;
 import greta.auxiliary.openface2.util.StringArrayListener;
 import greta.auxiliary.openface2.util.ConnectionListener;
 import greta.core.animation.mpeg4.bap.BAPFrame;
 import greta.core.animation.mpeg4.bap.BAPFrameEmitter;
-import greta.core.animation.mpeg4.bap.BAPFrameEmitterImpl;
 import greta.core.animation.mpeg4.bap.BAPFramePerformer;
 import greta.core.keyframes.face.AUEmitter;
-import greta.core.keyframes.face.AUEmitterImpl;
 import greta.core.keyframes.face.AUPerformer;
 import greta.core.repositories.AUAPFrame;
 import greta.core.util.IniManager;
 import greta.core.util.id.ID;
 import java.awt.Color;
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -53,74 +48,73 @@ import java.util.logging.Level;
  * @author Philippe Gauthier <philippe.gauthier@sorbonne-universite.fr>
  * @author Brice Donval
  */
-public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AUEmitter, BAPFrameEmitter, ConnectionListener, StringArrayListener {
+public class OpenFaceOutputStreamReaderOSC extends javax.swing.JFrame implements AUEmitter, BAPFrameEmitter, ConnectionListener, StringArrayListener {
 
-    private static final Logger LOGGER = Logger.getLogger(OpenFaceOutputStreamReader.class.getName());
+   
+
+    private static final Logger LOGGER = Logger.getLogger(OpenFaceOutputStreamReaderOSC.class.getName());
 
     private static final Color green = new Color(0, 150, 0);
     private static final Color red = Color.RED;
 
-    private static final String fileProperty = "GUI.file";
     private static final String statusProperty = "word.status";
     private static final String connectedProperty = "network.connected";
     private static final String notConnectedProperty = "network.notconnected";
     private static final String hostProperty = "network.host";
     private static final String portProperty = "network.port";
 
-    private String csvConnectedProperty;
-    private String zeroMQConnectedProperty;
+    private String oscConnectedProperty;
     // OSC is use to monitor AUs signal, mainly for debug
     protected boolean useOSCout = false;
     protected OSCPortOut oscOut = null;
     protected int oscOutPort = OSCPort.defaultSCOSCPort();    
     
-    private OpenFaceOutputStreamCSVReader csvReader = new OpenFaceOutputStreamCSVReader();
-    private OpenFaceOutputStreamZeroMQReader zeroMQReader = new OpenFaceOutputStreamZeroMQReader();
+    // OSC used as AU input listener
+    protected boolean useOSCin = false;
+    protected int oscInPort = 10000;   
+    protected OSCPortIn oscIn = null;
    
+    private OpenFaceOutputStreamOSCReader reader = new OpenFaceOutputStreamOSCReader();
+
     /**
      * Creates new form OpenFaceOutputStreamReader
      */
-    public OpenFaceOutputStreamReader() {
-        initComponents();
-        
+    public OpenFaceOutputStreamReaderOSC() {
+        initComponents();        
         jSpinnerfilterPow.setModel(new SpinnerNumberModel(0.0,0.0,10.0,0.1));
         jSpinnerfilterMaxQueueSize.setValue(getFilterMaxQueueSize());
-        
-        setZeroMQConnected(false);
-        csvReader.addConnectionListener(this);
-        csvReader.addHeaderListener(this);
-        zeroMQReader.addConnectionListener(this);
-        zeroMQReader.addHeaderListener(this);
+        oscInPortTextField.setText(Integer.toString(reader.DEFAULT_OSC_PORT)) ;
+        setOSCConnected(false);
+        reader.addConnectionListener(this);
+        reader.addHeaderListener(this);
     }
     /*
     FILTERS
     */
     // We assume both reader use the same filter size
     public int getFilterMaxQueueSize(){
-        return zeroMQReader.getFilterMaxQueueSize();
+        return reader.getFilterMaxQueueSize();
     }
     
     // We assume both reader use the same filter size
     public void setFilterMaxQueueSize(int value){
-        zeroMQReader.setFilterMaxQueueSize(value);
-        csvReader.setFilterMaxQueueSize(value);
+        reader.setFilterMaxQueueSize(value);
     }
     
     // We assume both reader use the same filter pow
     public int getFilterPow(){
-        return zeroMQReader.getFilterMaxQueueSize();
+        return reader.getFilterMaxQueueSize();
     }
     
     // We assume both reader use the same parameters
     public void setFilterPow(double i){
-        zeroMQReader.setFilterPow(i);
-        csvReader.setFilterPow(i);
+        reader.setFilterPow(i);
     }
     
     /*
     OSC
     */
-    public void setUseOSC(boolean b){        
+    public void setOutput(boolean b){        
         if(b){              
             startOSCOut(oscOutPort);            
         }
@@ -129,12 +123,35 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
         }
     }
     
+    protected void start(int port){
+        try { 
+            oscIn = new OSCPortIn(port);
+            useOSCin = true;
+        } catch (IOException ex)
+        {
+            useOSCin = false;
+            LOGGER.log(Level.WARNING, null, ex);
+        }
+        LOGGER.log(Level.INFO, String.format("startOSCin port %d : %b", port, useOSCin));
+    }
+    
+    protected void stop(){        
+        useOSCin = false;
+        if(oscIn!=null){
+            try {
+                oscIn.disconnect();
+            } catch (IOException ex) {           
+                LOGGER.log(Level.WARNING, null, ex);
+            }
+        }
+        LOGGER.log(Level.INFO, String.format("stopOSCIn : %b",  !useOSCin));
+    }
+    
     protected void startOSCOut(int port){        
         try {            
             oscOut = new OSCPortOut(InetAddress.getLocalHost(), port);            
             useOSCout = true;
-            zeroMQReader.setOSCout(oscOut);
-            csvReader.setOSCout(oscOut);
+            reader.setOSCout(oscOut);
         } catch (IOException ex) {
             useOSCout = false;
             LOGGER.log(Level.WARNING, null, ex);
@@ -144,8 +161,7 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
     
     protected void stopOSCOut(){        
         useOSCout = false;
-        zeroMQReader.setOSCout(null);
-        csvReader.setOSCout(null);
+        reader.setOSCout(null);
         if(oscOut!=null){
             try {
                 oscOut.disconnect();
@@ -165,70 +181,41 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
         oscOutPort = port;      
     }
     
-    private void setCSVConnected(boolean connected) {
+    private void setOSCConnected(boolean connected) {
         if (connected) {
-            csvConnectedProperty = connectedProperty;
-            csvConnectedLabel.setForeground(green);            
-            csvConnectButton.setText("Disconnect");
+            oscConnectedProperty = connectedProperty;
+            oscConnectedLabel.setForeground(green);
+            oscInConnectButton.setText("Disconnect");            
         } else {
-            csvConnectedProperty = notConnectedProperty;
-            performCheckBox.setSelected(false);
-            csvConnectedLabel.setForeground(red);            
-            csvConnectButton.setText("Connect");
+            oscConnectedProperty = notConnectedProperty;
+            oscConnectedLabel.setForeground(red);        
+            oscInConnectButton.setText("Connect");
         }
         updateConnectedLabels();
         updateIOPanelsEnabled(connected);
-        filterCheckBox.setSelected(zeroMQReader.isUseFilter());
     }
 
-    private void setZeroMQConnected(boolean connected) {
-        if (connected) {
-            zeroMQConnectedProperty = connectedProperty;
-            zeroMQConnectedLabel.setForeground(green);
-            zeroMQConnectButton.setText("Disconnect");
-        } else {
-            zeroMQConnectedProperty = notConnectedProperty;
-            performCheckBox.setSelected(false);
-            zeroMQConnectedLabel.setForeground(red);            
-            zeroMQConnectButton.setText("Connect");
+    private void updateReader() {
+        String portStr = oscInPortTextField.getText();
+        int port = Integer.parseInt(portStr);
+        if (reader.getPort() != port) {
+            reader.setPort(port);
         }
-        updateConnectedLabels();
-        updateIOPanelsEnabled(connected);
-        filterCheckBox.setSelected(zeroMQReader.isUseFilter());
-    }
-    
-
-    private void updateCSVReader() {
-        if (!csvReader.getFileName().equals(csvFileTextField.getText())) {
-            csvReader.setFileName(csvFileTextField.getText());
-        }
-    }
-
-    private void updateZeroMQReader() {
-        if (!zeroMQReader.getHost().equals(zeroMQHostTextField.getText())
-                || !zeroMQReader.getPort().equals(zeroMQPortTextField.getText())) {
-            zeroMQReader.setURL(zeroMQHostTextField.getText(), zeroMQPortTextField.getText());
-        }
-    }
+    } 
 
     @Override
     public void setLocale(Locale l) {
         super.setLocale(l);
         updateConnectedLabels();
-        updateLabelWithColon(csvStatusLabel, statusProperty);
-        updateLabelWithColon(csvFileLabel, fileProperty);
-        updateLabelWithColon(zeroMQStatusLabel, statusProperty);
-        updateLabelWithColon(zeroMQHostLabel, hostProperty);
-        updateLabelWithColon(zeroMQPortLabel, portProperty);            
+        
+        updateLabelWithColon(oscStatusLabel, statusProperty);
+        updateLabelWithColon(oscConnectedLabel, notConnectedProperty);        
     }
 
-    private void updateConnectedLabels() {
-        if (csvConnectedLabel != null) {
-            csvConnectedLabel.setText(IniManager.getLocaleProperty(zeroMQConnectedProperty));
+    private void updateConnectedLabels() {        
+        if (oscConnectedLabel != null) {
+            oscConnectedLabel.setText(IniManager.getLocaleProperty(oscConnectedProperty));
         }
-        if (zeroMQConnectedLabel != null) {
-            zeroMQConnectedLabel.setText(IniManager.getLocaleProperty(zeroMQConnectedProperty));
-        }        
     }
 
     private void updateLabelWithColon(javax.swing.JLabel label, String property) {
@@ -246,38 +233,20 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
 
-        csvFileChooser = new javax.swing.JFileChooser();
         mainPanel = new javax.swing.JPanel();
         northPanel = new javax.swing.JPanel();
         inputTabbedPane = new javax.swing.JTabbedPane();
-        csvTab = new javax.swing.JPanel();
-        csvStatusPanel = new javax.swing.JPanel();
-        csvStatusLabel = new javax.swing.JLabel();
-        csvStatusPanelFiller = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
-        csvConnectedLabel = new javax.swing.JLabel();
-        csvConnectorPanel = new javax.swing.JPanel();
-        csvFileLabel = new javax.swing.JLabel();
-        csvTabFiller1 = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
-        csvFileTextField = new javax.swing.JTextField();
-        csvTabFiller2 = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
-        csvOpenButton = new greta.core.utilx.gui.ToolBox.LocalizedJButton("GUI.open");
-        csvTabFiller3 = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
-        csvConnectButton = new javax.swing.JButton();
-        zeroMQTab = new javax.swing.JPanel();
-        zeroMQStatusPanel = new javax.swing.JPanel();
-        zeroMQStatusLabel = new javax.swing.JLabel();
-        zeroMQStatusPanelFiller = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
-        zeroMQConnectedLabel = new javax.swing.JLabel();
-        zeroMQConnectorPanel = new javax.swing.JPanel();
-        zeroMQHostLabel = new javax.swing.JLabel();
-        zeroMQConnectorPanelFiller1 = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
-        zeroMQHostTextField = new javax.swing.JTextField();
-        zeroMQConnectorPanelFiller2 = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
-        zeroMQPortLabel = new javax.swing.JLabel();
-        zeroMQConnectorPanelFiller3 = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
-        zeroMQPortTextField = new javax.swing.JTextField();
-        zeroMQConnectorPanelFiller4 = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
-        zeroMQConnectButton = new javax.swing.JButton();
+        oscTab = new javax.swing.JPanel();
+        oscStatusPanel = new javax.swing.JPanel();
+        oscStatusLabel = new javax.swing.JLabel();
+        oscStatusPanelFiller = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
+        oscConnectedLabel = new javax.swing.JLabel();
+        oscConnectorPanel = new javax.swing.JPanel();
+        oscInPortLabel = new javax.swing.JLabel();
+        oscInConnectorPanelFiller = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
+        oscInPortTextField = new javax.swing.JTextField();
+        oscInConnectorPanelFiller2 = new javax.swing.Box.Filler(new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 0), new java.awt.Dimension(10, 32767));
+        oscInConnectButton = new javax.swing.JButton();
         northPanelFiller1 = new javax.swing.Box.Filler(new java.awt.Dimension(20, 0), new java.awt.Dimension(20, 0), new java.awt.Dimension(20, 32767));
         jPanel1 = new javax.swing.JPanel();
         performCheckBox = new javax.swing.JCheckBox();
@@ -302,8 +271,6 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
         upButton = new javax.swing.JButton();
         downButton = new javax.swing.JButton();
 
-        csvFileChooser.setFileFilter(csvReader.getFileFilter());
-
         mainPanel.setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 10, 10, 10));
         mainPanel.setLayout(new java.awt.BorderLayout(0, 10));
 
@@ -316,133 +283,59 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
             }
         });
 
-        csvTab.setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        csvTab.setLayout(new javax.swing.BoxLayout(csvTab, javax.swing.BoxLayout.PAGE_AXIS));
+        oscTab.setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        oscTab.setLayout(new javax.swing.BoxLayout(oscTab, javax.swing.BoxLayout.PAGE_AXIS));
 
-        csvStatusPanel.setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 5));
+        oscStatusPanel.setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 5));
 
-        csvStatusLabel.setText(IniManager.getLocaleProperty("word.status")+":");
-        csvStatusPanel.add(csvStatusLabel);
-        csvStatusPanel.add(csvStatusPanelFiller);
+        oscStatusLabel.setText(IniManager.getLocaleProperty("word.status")+":");
+        oscStatusPanel.add(oscStatusLabel);
+        oscStatusPanel.add(oscStatusPanelFiller);
 
-        csvConnectedLabel.setText(IniManager.getLocaleProperty("network.notconnected"));
-        csvStatusPanel.add(csvConnectedLabel);
+        oscConnectedLabel.setText(IniManager.getLocaleProperty("network.notconnected"));
+        oscStatusPanel.add(oscConnectedLabel);
 
-        csvTab.add(csvStatusPanel);
+        oscTab.add(oscStatusPanel);
 
-        csvConnectorPanel.setLayout(new javax.swing.BoxLayout(csvConnectorPanel, javax.swing.BoxLayout.LINE_AXIS));
+        oscConnectorPanel.setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 5));
 
-        csvFileLabel.setText(IniManager.getLocaleProperty("GUI.file")+":");
-        csvFileLabel.setVerticalTextPosition(javax.swing.SwingConstants.TOP);
-        csvConnectorPanel.add(csvFileLabel);
-        csvConnectorPanel.add(csvTabFiller1);
+        oscInPortLabel.setText(IniManager.getLocaleProperty(portProperty)+":");
+        oscInPortLabel.setVerticalTextPosition(javax.swing.SwingConstants.TOP);
+        oscConnectorPanel.add(oscInPortLabel);
+        oscConnectorPanel.add(oscInConnectorPanelFiller);
 
-        csvFileTextField.addFocusListener(new java.awt.event.FocusAdapter() {
+        oscInPortTextField.setMaximumSize(new java.awt.Dimension(50, 2147483647));
+        oscInPortTextField.setPreferredSize(new java.awt.Dimension(50, 20));
+        oscInPortTextField.addFocusListener(new java.awt.event.FocusAdapter() {
             public void focusLost(java.awt.event.FocusEvent evt) {
-                csvFileTextFieldFocusLost(evt);
+                oscInPortTextFieldFocusLost(evt);
             }
         });
-        csvFileTextField.addActionListener(new java.awt.event.ActionListener() {
+        oscInPortTextField.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
-                csvFileTextFieldActionPerformed(evt);
+                oscInPortTextFieldActionPerformed(evt);
             }
         });
-        csvConnectorPanel.add(csvFileTextField);
-        csvConnectorPanel.add(csvTabFiller2);
-
-        csvOpenButton.setName(""); // NOI18N
-        csvOpenButton.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                csvOpenButtonActionPerformed(evt);
-            }
-        });
-        csvConnectorPanel.add(csvOpenButton);
-        csvConnectorPanel.add(csvTabFiller3);
-
-        csvConnectButton.setText("Connect");
-        csvConnectButton.setPreferredSize(new java.awt.Dimension(93, 23));
-        csvConnectButton.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                csvConnectButtonActionPerformed(evt);
-            }
-        });
-        csvConnectorPanel.add(csvConnectButton);
-
-        csvTab.add(csvConnectorPanel);
-
-        inputTabbedPane.addTab("CSV", csvTab);
-
-        zeroMQTab.setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        zeroMQTab.setLayout(new javax.swing.BoxLayout(zeroMQTab, javax.swing.BoxLayout.PAGE_AXIS));
-
-        zeroMQStatusPanel.setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 5));
-
-        zeroMQStatusLabel.setText(IniManager.getLocaleProperty("word.status")+":");
-        zeroMQStatusPanel.add(zeroMQStatusLabel);
-        zeroMQStatusPanel.add(zeroMQStatusPanelFiller);
-
-        zeroMQConnectedLabel.setText(IniManager.getLocaleProperty("network.notconnected"));
-        zeroMQStatusPanel.add(zeroMQConnectedLabel);
-
-        zeroMQTab.add(zeroMQStatusPanel);
-
-        zeroMQConnectorPanel.setLayout(new javax.swing.BoxLayout(zeroMQConnectorPanel, javax.swing.BoxLayout.LINE_AXIS));
-
-        zeroMQHostLabel.setText(IniManager.getLocaleProperty(hostProperty)+":");
-        zeroMQHostLabel.setVerticalTextPosition(javax.swing.SwingConstants.TOP);
-        zeroMQConnectorPanel.add(zeroMQHostLabel);
-        zeroMQConnectorPanel.add(zeroMQConnectorPanelFiller1);
-
-        zeroMQHostTextField.addFocusListener(new java.awt.event.FocusAdapter() {
-            public void focusLost(java.awt.event.FocusEvent evt) {
-                zeroMQHostTextFieldFocusLost(evt);
-            }
-        });
-        zeroMQHostTextField.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                zeroMQHostTextFieldActionPerformed(evt);
-            }
-        });
-        zeroMQConnectorPanel.add(zeroMQHostTextField);
-        zeroMQConnectorPanel.add(zeroMQConnectorPanelFiller2);
-
-        zeroMQPortLabel.setText(IniManager.getLocaleProperty(portProperty)+":");
-        zeroMQPortLabel.setVerticalTextPosition(javax.swing.SwingConstants.TOP);
-        zeroMQConnectorPanel.add(zeroMQPortLabel);
-        zeroMQConnectorPanel.add(zeroMQConnectorPanelFiller3);
-
-        zeroMQPortTextField.setMaximumSize(new java.awt.Dimension(50, 2147483647));
-        zeroMQPortTextField.setPreferredSize(new java.awt.Dimension(50, 20));
-        zeroMQPortTextField.addFocusListener(new java.awt.event.FocusAdapter() {
-            public void focusLost(java.awt.event.FocusEvent evt) {
-                zeroMQPortTextFieldFocusLost(evt);
-            }
-        });
-        zeroMQPortTextField.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                zeroMQPortTextFieldActionPerformed(evt);
-            }
-        });
-        zeroMQPortTextField.addKeyListener(new java.awt.event.KeyAdapter() {
+        oscInPortTextField.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyTyped(java.awt.event.KeyEvent evt) {
-                zeroMQPortTextFieldKeyTyped(evt);
+                oscInPortTextFieldKeyTyped(evt);
             }
         });
-        zeroMQConnectorPanel.add(zeroMQPortTextField);
-        zeroMQConnectorPanel.add(zeroMQConnectorPanelFiller4);
+        oscConnectorPanel.add(oscInPortTextField);
+        oscConnectorPanel.add(oscInConnectorPanelFiller2);
 
-        zeroMQConnectButton.setText("Connect");
-        zeroMQConnectButton.setPreferredSize(new java.awt.Dimension(93, 23));
-        zeroMQConnectButton.addActionListener(new java.awt.event.ActionListener() {
+        oscInConnectButton.setText("Connect");
+        oscInConnectButton.setPreferredSize(new java.awt.Dimension(93, 23));
+        oscInConnectButton.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
-                zeroMQConnectButtonActionPerformed(evt);
+                oscInConnectButtonActionPerformed(evt);
             }
         });
-        zeroMQConnectorPanel.add(zeroMQConnectButton);
+        oscConnectorPanel.add(oscInConnectButton);
 
-        zeroMQTab.add(zeroMQConnectorPanel);
+        oscTab.add(oscConnectorPanel);
 
-        inputTabbedPane.addTab("ZeroMQ", zeroMQTab);
+        inputTabbedPane.addTab("OSC", oscTab);
 
         northPanel.add(inputTabbedPane);
         northPanel.add(northPanelFiller1);
@@ -481,7 +374,7 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
 
         jSpinnerfilterPow.setModel(new javax.swing.SpinnerNumberModel(0.0d, 0.0d, null, 1.0d));
         jSpinnerfilterPow.setEditor(new javax.swing.JSpinner.NumberEditor(jSpinnerfilterPow, "0.00"));
-        jSpinnerfilterPow.setValue(zeroMQReader.getFilterPow());
+        jSpinnerfilterPow.setValue(reader.getFilterPow());
         jSpinnerfilterPow.addChangeListener(new javax.swing.event.ChangeListener() {
             public void stateChanged(javax.swing.event.ChangeEvent evt) {
                 jSpinnerfilterPowStateChanged(evt);
@@ -635,96 +528,16 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
         setPanelComponentsEnabled(outputButtonPanel, enabled);
     }
 
-    /* ---------------------------------------------------------------------- *
-     *                              Tabbed Pane                               *
-     * ---------------------------------------------------------------------- */
-
-    private void inputTabbedPaneStateChanged(javax.swing.event.ChangeEvent evt) {//GEN-FIRST:event_inputTabbedPaneStateChanged
-        stopConnections();
-    }//GEN-LAST:event_inputTabbedPaneStateChanged
-
     private void stopConnections() {
-        csvReader.stopConnection();
-        zeroMQReader.stopConnection();        
+        reader.stopConnection();
     }
-
-    /* ---------------------------------------------------------------------- *
-     *                                CSV Tab                                 *
-     * ---------------------------------------------------------------------- */
-
-    private void csvFileTextFieldActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_csvFileTextFieldActionPerformed
-        updateCSVReader();
-    }//GEN-LAST:event_csvFileTextFieldActionPerformed
-
-    private void csvFileTextFieldFocusLost(java.awt.event.FocusEvent evt) {//GEN-FIRST:event_csvFileTextFieldFocusLost
-        updateCSVReader();
-    }//GEN-LAST:event_csvFileTextFieldFocusLost
-
-    private void csvOpenButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_csvOpenButtonActionPerformed
-        csvFileChooser.setLocale(Locale.getDefault());
-        csvFileChooser.updateUI();
-        if (csvFileChooser.showOpenDialog(this) == javax.swing.JFileChooser.APPROVE_OPTION) {
-            File file = csvFileChooser.getSelectedFile();
-            this.csvFileTextField.setText(file.getAbsolutePath());
-        }
-        updateCSVReader();
-    }//GEN-LAST:event_csvOpenButtonActionPerformed
-
-    private void csvConnectButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_csvConnectButtonActionPerformed
-        if (evt.getActionCommand().equals("Connect")) {
-            csvReader.startConnection();
-        } else if (evt.getActionCommand().equals("Disconnect")) {
-            csvReader.stopConnection();
-        }
-    }//GEN-LAST:event_csvConnectButtonActionPerformed
-
-    /* ---------------------------------------------------------------------- *
-     *                               ZeroMQ Tab                               *
-     * ---------------------------------------------------------------------- */
-
-    private void zeroMQHostTextFieldActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_zeroMQHostTextFieldActionPerformed
-        updateZeroMQReader();
-    }//GEN-LAST:event_zeroMQHostTextFieldActionPerformed
-
-    private void zeroMQHostTextFieldFocusLost(java.awt.event.FocusEvent evt) {//GEN-FIRST:event_zeroMQHostTextFieldFocusLost
-        updateZeroMQReader();
-    }//GEN-LAST:event_zeroMQHostTextFieldFocusLost
-
-    private void zeroMQPortTextFieldKeyTyped(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_zeroMQPortTextFieldKeyTyped
-        char pressed = evt.getKeyChar();
-        if (Character.isDigit(pressed)) {
-            String beforeselect = zeroMQPortTextField.getText().substring(0, zeroMQPortTextField.getSelectionStart());
-            String afterSelect = zeroMQPortTextField.getText().substring(zeroMQPortTextField.getSelectionEnd());
-            long value = Long.parseLong(beforeselect + pressed + afterSelect);
-            if (0 <= value && value <= 65535) {
-                return;//it's ok
-            }
-        }
-        evt.consume();
-    }//GEN-LAST:event_zeroMQPortTextFieldKeyTyped
-
-    private void zeroMQPortTextFieldActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_zeroMQPortTextFieldActionPerformed
-        updateZeroMQReader();
-    }//GEN-LAST:event_zeroMQPortTextFieldActionPerformed
-
-    private void zeroMQPortTextFieldFocusLost(java.awt.event.FocusEvent evt) {//GEN-FIRST:event_zeroMQPortTextFieldFocusLost
-        updateZeroMQReader();
-    }//GEN-LAST:event_zeroMQPortTextFieldFocusLost
-
-    private void zeroMQConnectButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_zeroMQConnectButtonActionPerformed
-        if (evt.getActionCommand().equals("Connect")) {
-            zeroMQReader.startConnection();
-        } else if (evt.getActionCommand().equals("Disconnect")) {
-            zeroMQReader.stopConnection();
-        }
-    }//GEN-LAST:event_zeroMQConnectButtonActionPerformed
 
     /* ---------------------------------------------------------------------- *
      *                          Output Buttons Panel                          *
      * ---------------------------------------------------------------------- */
 
     private void setButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_setButtonActionPerformed
-        zeroMQReader.setSelected(getSelectedFeatures());
+        reader.setSelected(getSelectedFeatures());
     }//GEN-LAST:event_setButtonActionPerformed
 
     private void selectAllButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_selectAllButtonActionPerformed
@@ -756,12 +569,13 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
     }//GEN-LAST:event_downButtonActionPerformed
 
     private void filterCheckBoxActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_filterCheckBoxActionPerformed
-        zeroMQReader.setUseFilter(filterCheckBox.isSelected());
-        csvReader.setUseFilter(filterCheckBox.isSelected());
+        reader.setUseFilter(filterCheckBox.isSelected());
     }//GEN-LAST:event_filterCheckBoxActionPerformed
 
     private void performCheckBoxActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_performCheckBoxActionPerformed
-        // TODO add your handling code here:
+        boolean perform = performCheckBox.isSelected();
+        LOGGER.info(String.format("Perform: %b",perform));
+        reader.setPerforming(perform);        
     }//GEN-LAST:event_performCheckBoxActionPerformed
 
     private void jSpinnerfilterPowStateChanged(javax.swing.event.ChangeEvent evt) {//GEN-FIRST:event_jSpinnerfilterPowStateChanged
@@ -782,7 +596,7 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
 
     private void jCheckBoxSendOSCStateChanged(javax.swing.event.ChangeEvent evt) {//GEN-FIRST:event_jCheckBoxSendOSCStateChanged
         // TODO add your handling code here:
-        setUseOSC(jCheckBoxSendOSC.isSelected());
+        setOutput(jCheckBoxSendOSC.isSelected());
     }//GEN-LAST:event_jCheckBoxSendOSCStateChanged
 
     private void jSpinnerSendOSCPortStateChanged(javax.swing.event.ChangeEvent evt) {//GEN-FIRST:event_jSpinnerSendOSCPortStateChanged
@@ -793,26 +607,43 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
         setOscOutPort(value);
     }//GEN-LAST:event_jSpinnerSendOSCPortStateChanged
 
+    /* ---------------------------------------------------------------------- *
+     *                              Tabbed Pane                               *
+     * ---------------------------------------------------------------------- */
+
+    private void inputTabbedPaneStateChanged(javax.swing.event.ChangeEvent evt) {//GEN-FIRST:event_inputTabbedPaneStateChanged
+        stopConnections();
+    }//GEN-LAST:event_inputTabbedPaneStateChanged
+
+    private void oscInConnectButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_oscInConnectButtonActionPerformed
+        // TODO add your handling code here:
+        if (evt.getActionCommand().equals("Connect")) {
+            int port = Integer.parseInt(oscInPortTextField.getText());
+            reader.setPort(port);
+            reader.startConnection();
+        } else if (evt.getActionCommand().equals("Disconnect")) {
+            reader.stopConnection();
+        }
+    }//GEN-LAST:event_oscInConnectButtonActionPerformed
+
+    private void oscInPortTextFieldKeyTyped(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_oscInPortTextFieldKeyTyped
+        // TODO add your handling code here:
+    }//GEN-LAST:event_oscInPortTextFieldKeyTyped
+
+    private void oscInPortTextFieldActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_oscInPortTextFieldActionPerformed
+        // TODO add your handling code here:
+    }//GEN-LAST:event_oscInPortTextFieldActionPerformed
+
+    private void oscInPortTextFieldFocusLost(java.awt.event.FocusEvent evt) {//GEN-FIRST:event_oscInPortTextFieldFocusLost
+        // TODO add your handling code here:
+    }//GEN-LAST:event_oscInPortTextFieldFocusLost
+
     /* ---------------------------------------------------------------------- */
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.Box.Filler buttonPanelFiller1;
     private javax.swing.Box.Filler buttonPanelFiller2;
     private javax.swing.JPanel centerPanel;
-    private javax.swing.JButton csvConnectButton;
-    private javax.swing.JLabel csvConnectedLabel;
-    private javax.swing.JPanel csvConnectorPanel;
-    private javax.swing.JFileChooser csvFileChooser;
-    private javax.swing.JLabel csvFileLabel;
-    private javax.swing.JTextField csvFileTextField;
-    private javax.swing.JButton csvOpenButton;
-    private javax.swing.JLabel csvStatusLabel;
-    private javax.swing.JPanel csvStatusPanel;
-    private javax.swing.Box.Filler csvStatusPanelFiller;
-    private javax.swing.JPanel csvTab;
-    private javax.swing.Box.Filler csvTabFiller1;
-    private javax.swing.Box.Filler csvTabFiller2;
-    private javax.swing.Box.Filler csvTabFiller3;
     private javax.swing.JButton downButton;
     private javax.swing.JTable featuresTable;
     private javax.swing.JCheckBox filterCheckBox;
@@ -827,6 +658,17 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
     private javax.swing.JPanel northPanel;
     private javax.swing.Box.Filler northPanelFiller1;
     private javax.swing.Box.Filler northPanelFiller2;
+    private javax.swing.JLabel oscConnectedLabel;
+    private javax.swing.JPanel oscConnectorPanel;
+    private javax.swing.JButton oscInConnectButton;
+    private javax.swing.Box.Filler oscInConnectorPanelFiller;
+    private javax.swing.Box.Filler oscInConnectorPanelFiller2;
+    private javax.swing.JLabel oscInPortLabel;
+    private javax.swing.JTextField oscInPortTextField;
+    private javax.swing.JLabel oscStatusLabel;
+    private javax.swing.JPanel oscStatusPanel;
+    private javax.swing.Box.Filler oscStatusPanelFiller;
+    private javax.swing.JPanel oscTab;
     private javax.swing.JPanel outputButtonPanel;
     private javax.swing.JPanel outputPanel;
     private javax.swing.JScrollPane outputScrollPane;
@@ -836,21 +678,6 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
     private javax.swing.JSeparator separator;
     private javax.swing.JButton setButton;
     private javax.swing.JButton upButton;
-    private javax.swing.JButton zeroMQConnectButton;
-    private javax.swing.JLabel zeroMQConnectedLabel;
-    private javax.swing.JPanel zeroMQConnectorPanel;
-    private javax.swing.Box.Filler zeroMQConnectorPanelFiller1;
-    private javax.swing.Box.Filler zeroMQConnectorPanelFiller2;
-    private javax.swing.Box.Filler zeroMQConnectorPanelFiller3;
-    private javax.swing.Box.Filler zeroMQConnectorPanelFiller4;
-    private javax.swing.JLabel zeroMQHostLabel;
-    private javax.swing.JTextField zeroMQHostTextField;
-    private javax.swing.JLabel zeroMQPortLabel;
-    private javax.swing.JTextField zeroMQPortTextField;
-    private javax.swing.JLabel zeroMQStatusLabel;
-    private javax.swing.JPanel zeroMQStatusPanel;
-    private javax.swing.Box.Filler zeroMQStatusPanelFiller;
-    private javax.swing.JPanel zeroMQTab;
     // End of variables declaration//GEN-END:variables
 
     /* ---------------------------------------------------------------------- */
@@ -867,55 +694,6 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
      */
     public int getTabIndex() {
         return inputTabbedPane.getSelectedIndex();
-    }
-
-    /**
-     * @param name the CSV file name to set
-     */
-    public void setCSVFileName(String name) {
-        csvFileTextField.setText(name);
-    }
-
-    /**
-     * @return the CSV file name
-     */
-    public String getCSVFileName() {
-        return csvFileTextField.getText();
-    }
-
-    /**
-     * @param host the ZeroMQ host to set
-     */
-    public void setZeroMQHost(String host) {
-        zeroMQHostTextField.setText(host);
-    }
-
-    /**
-     * @return the ZeroMQ host
-     */
-    public String getZeroMQHost() {
-        return zeroMQHostTextField.getText();
-    }
-
-    /**
-     * @param port the ZeroMQ port to set
-     */
-    public void setZeroMQPort(String port) {
-        zeroMQPortTextField.setText(port);
-    }
-
-    /**
-     * @return the ZeroMQ port
-     */
-    public String getZeroMQPort() {
-        return zeroMQPortTextField.getText();
-    }
-
-    /**
-     * @return the state of the "Perform" button
-     */
-    public boolean isPerforming() {
-        return performCheckBox.isSelected();
     }
 
     /* ---------------------------------------------------------------------- */
@@ -947,7 +725,43 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
         featuresTable.setRowSelectionInterval(old, newIndex);
     }
 
-    
+    /* ---------------------------------------------------------------------- *
+     *                               AUEmitter                                *
+     * ---------------------------------------------------------------------- */
+
+    @Override
+    public void addAUPerformer(AUPerformer auPerformer) {
+        reader.addAUPerformer(auPerformer);
+        
+    }
+
+    @Override
+    public void removeAUPerformer(AUPerformer auPerformer) {        
+        reader.removeAUPerformer(auPerformer);
+    }
+
+    public void sendAUFrame(AUAPFrame auFrame, ID id) {
+        //LOGGER.info("sendAUFrame");
+        reader.sendAUFrame(auFrame, id);
+    }
+
+    /* ---------------------------------------------------------------------- *
+     *                            BAPFrameEmitter                             *
+     * ---------------------------------------------------------------------- */
+
+    @Override
+    public void addBAPFramePerformer(BAPFramePerformer bapFramePerformer) {
+        reader.addBAPFramePerformer(bapFramePerformer);        
+    }
+
+    @Override
+    public void removeBAPFramePerformer(BAPFramePerformer bapFramePerformer) {
+        reader.removeBAPFramePerformer(bapFramePerformer);
+    }
+
+    public void sendBAPFrame(BAPFrame bapFrame, ID id) {       
+        reader.sendBAPFrame(bapFrame, id);
+    }
 
     /* ---------------------------------------------------------------------- *
      *                           ConnectionListener                           *
@@ -955,13 +769,13 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
 
     @Override
     public void onConnection() {
-        setZeroMQConnected(true);
+        setOSCConnected(true);
         
     }
 
     @Override
     public void onDisconnection() {
-        setZeroMQConnected(false);
+        setOSCConnected(false);
     }
 
     /* ---------------------------------------------------------------------- *
@@ -972,28 +786,18 @@ public class OpenFaceOutputStreamReader extends javax.swing.JFrame implements AU
     public void stringArrayChanged(List<String> newFeatures) {
         updateFeatures(newFeatures);
     }
-
-    @Override
-    public void addAUPerformer(AUPerformer aup) {
-        csvReader.addAUPerformer(aup);
-        zeroMQReader.addAUPerformer(aup);
+    
+     /**
+     * @return the oscInPort
+     */
+    public int getOscInPort() {
+        return oscInPort;
     }
 
-    @Override
-    public void removeAUPerformer(AUPerformer aup) {
-        csvReader.removeAUPerformer(aup);
-        zeroMQReader.removeAUPerformer(aup);
-    }
-
-    @Override
-    public void addBAPFramePerformer(BAPFramePerformer bapfp) {
-        csvReader.addBAPFramePerformer(bapfp);
-        zeroMQReader.addBAPFramePerformer(bapfp);
-    }
-
-    @Override
-    public void removeBAPFramePerformer(BAPFramePerformer bapfp) {
-        csvReader.removeBAPFramePerformer(bapfp);
-        zeroMQReader.removeBAPFramePerformer(bapfp);
+    /**
+     * @param oscInPort the oscInPort to set
+     */
+    public void setOscInPort(int oscInPort) {
+        this.oscInPort = oscInPort;
     }
 }
