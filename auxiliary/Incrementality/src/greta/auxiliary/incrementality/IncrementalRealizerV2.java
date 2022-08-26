@@ -32,6 +32,7 @@ import greta.core.behaviorrealizer.keyframegenerator.LaughKeyframeGenerator;
 import greta.core.behaviorrealizer.keyframegenerator.ShoulderKeyframeGenerator;
 import greta.core.behaviorrealizer.keyframegenerator.SpeechKeyframeGenerator;
 import greta.core.behaviorrealizer.keyframegenerator.TorsoKeyframeGenerator;
+import greta.core.intentions.IntentionPerformer;
 import greta.core.keyframes.AudioKeyFrame;
 import greta.core.keyframes.CancelableKeyframePerformer;
 import greta.core.keyframes.Keyframe;
@@ -81,7 +82,7 @@ import java.util.concurrent.TimeUnit;
  * @navassoc - - * greta.core.keyframes.Keyframe
  * @inavassoc - - * greta.core.signals.Signal
  */
-public class IncrementalRealizerV2 extends CallbackSender implements CancelableSignalPerformer, KeyframeEmitter, CharacterDependent, IncrementalityInteractionPerformer {
+public class IncrementalRealizerV2 extends CallbackSender implements CancelableSignalPerformer, KeyframeEmitter, CharacterDependent, IncrementalityInteractionPerformer, IncrementalityInteractionEmitter {
 
     // where send the resulted keyframes
     private List<KeyframePerformer> keyframePerformers;
@@ -96,14 +97,16 @@ public class IncrementalRealizerV2 extends CallbackSender implements CancelableS
 
     private ID currentID;
 
-    private List<IncrementalityFeedbackPerformer> incFeedbackPerformers;
-
     private List<Keyframe> storeKeyframe;
 
     private int currentIndex;
 
     private ChunkSenderThread chunkSenderThread;
-    private ChunkSenderRunnable runnable;
+
+    private double firstKeyframeOffset;
+    private double lastKeyframeOffset;
+
+    private List<IncrementalityInteractionPerformer> performerList = new ArrayList<>();
 
     public IncrementalRealizerV2(CharacterManager cm) {
         setCharacterManager(cm);
@@ -128,11 +131,8 @@ public class IncrementalRealizerV2 extends CallbackSender implements CancelableS
         // environment
         environment = characterManager.getEnvironment();
 
-        incFeedbackPerformers = new ArrayList<>();
-
         storeKeyframe = new ArrayList<>();
 
-        runnable = new ChunkSenderRunnable();
         chunkSenderThread = new ChunkSenderThread(keyframePerformers);
         chunkSenderThread.start();
 
@@ -191,18 +191,10 @@ public class IncrementalRealizerV2 extends CallbackSender implements CancelableS
         // Step 4: adjust the timing of all key frame
         keyframes.sort(keyframeComparator);
 
-        /*double offsetToAdjust = 0;
-        for (Keyframe kf : keyframes) {
-            if(kf.getOffset() < offsetToAdjust){
-                offsetToAdjust = kf.getOffset();
-            }
-        }
-        
-        for (Keyframe kf : keyframes) {
-            kf.setOffset(1 + kf.getOffset() - offsetToAdjust);
-        }
-        
-        offsetToAdjust = 0;*/
+        /*for(Keyframe kf : keyframes){
+            System.out.println(kf.toString() + " --- " + kf.getOffset());
+        }*/
+        //System.out.println(keyframes.get(keyframes.size() - 1).getOffset());
         //  here:
         //      - we must manage the time for the three addition modes:
         //          - blend:    offset + now
@@ -246,27 +238,41 @@ public class IncrementalRealizerV2 extends CallbackSender implements CancelableS
 
         System.out.println(" ------------------------------------ START OF " + requestId + " ------------------------------------");
 
+        //In case of stop interaction, thread stop sending chunk, stop keyframe will bypass thread to ensure correrct stop
         if (requestId.toString().contains("stop")) {
-            System.out.println("stop");
+            double absoluteTime = greta.core.util.time.Timer.getTime(); //ABSOLUTE TIME = time when clicking the stop button where 0 is the start of modular
+            double duration = lastKeyframeOffset - firstKeyframeOffset; //DURATION = Duration of the stopped execution
+            double stopTime = absoluteTime - firstKeyframeOffset; //STOPTIME = time when clicking the stop button where 0 is the start of the execution
+
+            System.out.println("----- Stop -----");
+            System.out.println("ABSOLUTE TIME = " + absoluteTime + " --- DURATION = " + duration + " --- STOPTIME = " + stopTime);
             this.stopAllAnims();
+            chunkSenderThread.wakeUp();
             chunkSenderThread.emptyChunkList();
             chunkSenderThread.closeQueue();
             for (KeyframePerformer performer : keyframePerformers) {
                 performer.performKeyframes(keyframes, requestId, mode);
             }
+            //Otherwise, normal execution: chunking keyframes and sending chunks to thread
         } else {
+            //gather offset of first keyframe and last keyframe to calculate duration and stopTime in case of stop
+            firstKeyframeOffset = keyframes.get(0).getOffset();
+            lastKeyframeOffset = keyframes.get(keyframes.size() - 1).getOffset();
+
             //CHUNKING KEYFRAMES
             TreeMap<Integer, List<Keyframe>> treeList = this.createChunk(keyframes);
 
             System.out.println("\n -----------------------------      SENDING CHUNKS TO THREAD      -------------------------------");
 
             // Add animation to callbacks
-            if (mode.getCompositionType() == CompositionType.replace) {
-                this.stopAllAnims();
-                chunkSenderThread.closeQueue();
-            }
             this.addAnimation(requestId, absoluteStartTime, lastKeyFrameTime);
 
+            if (mode.getCompositionType() == CompositionType.replace || mode.getCompositionType() == CompositionType.blend) {
+                this.stopAllAnims();
+                for (IncrementalityInteractionPerformer pf : performerList) {
+                    pf.performIncInteraction("stop");
+                }
+            }
             chunkSenderThread.send(treeList, requestId, mode);
         }
     }
@@ -297,20 +303,27 @@ public class IncrementalRealizerV2 extends CallbackSender implements CancelableS
         chunkSenderThread.removeKeyframePerformer(kp);
     }
 
-    //create chunk of keyframes based on their offset
-    //Chunk size = 3s max
+    //Create chunk of keyframes based on their offset
+    /* A chunk is a group of keyframes with offsets that share a time period.
+    For exemple, if you want to work with chunks of 2 seconds,
+    the first chunk will contain the keyframes with offset ranging from 
+    0 to 2 seconds, then the second chunk will contain the keyframes with offset from 2 to 4 seconds
+    etc ...
+    You can chose which size of chunk you want to work with down below*/
+    //NOTE: because of what appear to be a synchronization down the execution, chunks of size 2 or 3 are recommended.
     public TreeMap<Integer, List<Keyframe>> createChunk(List<Keyframe> listKeyframe) {
         TreeMap<Integer, List<Keyframe>> treeList = new TreeMap<Integer, List<Keyframe>>();
         List<Keyframe> processKeyframesList = new ArrayList<>();
         currentIndex = (int) listKeyframe.get(0).getOffset();
+
+        int chunkSize = 3; //Modify this value to chose the chunk size
+
         for (Keyframe kf : listKeyframe) { //goes through keyframes
             int offsetInt = (int) kf.getOffset();
 
-            if (offsetInt % 3 == 0 && offsetInt > currentIndex) { //create chunk based on indicated size
+            if (offsetInt % chunkSize == 0 && offsetInt > currentIndex) { //create chunk based on indicated size
                 currentIndex = offsetInt;
             }
-
-            //currentIndex = offsetInt;
             int index = currentIndex;
 
             if (treeList.containsKey(index)) {
@@ -408,7 +421,7 @@ public class IncrementalRealizerV2 extends CallbackSender implements CancelableS
     //Interaction with the realizer from the outside, ex interuption
     @Override
     public void performIncInteraction(String parParam) {
-        if (parParam.equals("interupt")) {
+        if (parParam.equals("pauseGesture")) {
             chunkSenderThread.closeQueue();
             this.stopAllAnims();
         } else if (parParam.equals("resume")) {
@@ -418,5 +431,15 @@ public class IncrementalRealizerV2 extends CallbackSender implements CancelableS
             chunkSenderThread.closeQueue();
         }
         System.out.println("RECEIVED " + parParam);
+    }
+
+    @Override
+    public void addIncInteractionPerformer(IncrementalityInteractionPerformer performer) {
+        performerList.add(performer);
+    }
+
+    @Override
+    public void removeIncInteractionPerformer(IncrementalityInteractionPerformer performer) {
+        performerList.add(performer);
     }
 }
