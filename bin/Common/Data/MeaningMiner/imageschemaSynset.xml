@@ -320,23 +320,23 @@
 </imageschema>
 <!--
 <imageschema type="COLLECTION">
-<synset id="SID-00031264-N" type="NOUN" lemma="group"/>
-<synset id="SID-02304982-V" type="VERB" lemma="collect"/>
+<synset id="SID-00031264-N" type="NOUN" lemma="groupe"/>
+<synset id="SID-02304982-V" type="VERB" lemma="collecter"/>
 </imageschema>
 <imageschema type="SPLITTING">
-<synset id="SID-00383606-N" type="NOUN" lemma="separation"/>
-<synset id="SID-14414503-N" type="NOUN" lemma="separateness"/>
-<synset id="SID-02467662-V" type="VERB" lemma="split"/>
-<synset id="SID-00334186-V" type="VERB" lemma="separate"/>
-<synset id="SID-00328802-A" type="ADJ" lemma="separate"/>
+<synset id="SID-00383606-N" type="NOUN" lemma="séparation"/>
+<synset id="SID-14414503-N" type="NOUN" lemma="séparation"/>
+<synset id="SID-02467662-V" type="VERB" lemma="scinder"/>
+<synset id="SID-00334186-V" type="VERB" lemma="séparer"/>
+<synset id="SID-00328802-A" type="ADJ" lemma="séparé"/>
 <synset id="SID-02067063-A" type="ADJ" lemma="distinct"/>
-<synset id="SID-00207668-R" type="ADV" lemma="individually"/>
+<synset id="SID-00207668-R" type="ADV" lemma="individuellement"/>
 </imageschema>-->
 
 <imageschema type="ITERATION">
-<synset id="SID-01018630-N" type="NOUN" lemma="repetition"/>
-<synset id="SID-00637259-V" type="VERB" lemma="calculate"/>
-<synset id="SID-00343334-V" type="VERB" lemma="recur"/>
+<synset id="SID-01018630-N" type="NOUN" lemma="répétition"/>
+<synset id="SID-00637259-V" type="VERB" lemma="calculer"/>
+<synset id="SID-00343334-V" type="VERB" lemma="se reproduire"/>
 <synset id="SID-00176880-R" type="ADV" lemma="repeatedly"/>
 <synset id="SID-00047534-R" type="ADV" lemma="also"/>
 <synset id="SID-00339866-R" type="ADV" lemma="fifthly"/>
